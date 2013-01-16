@@ -2,7 +2,7 @@
  *        DO WHAT THE FORK YOU WANT TO PUBLIC LICENSE 
  *                    Version 2, December 2004
  *
- * Program Copyright (C) 2013 Rudolf Polzer <divVeremt@xonotic.org>
+ * Program Copyright (C) 2013 Rudolf Polzer <divVerent@xonotic.org>
  * Original License Copyright (C) 2004 Sam Hocevar <sam@hocevar.net>
  *
  * Everyone is permitted to copy and distribute verbatim or modified
