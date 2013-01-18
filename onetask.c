@@ -39,13 +39,13 @@
 
 #define WRITE(fd, str) write(fd, str, sizeof(str) - 1)
 
-static pid_t me;
+static pid_t me = 0;
 
 static void init(void) __attribute__((constructor));
 static void init(void)
 {
 	WRITE(2, "[onetask] initialized\n");
-	putenv("LD_PRELOAD=");
+	unsetenv("LD_PRELOAD");
 	me = getpid();
 }
 
@@ -78,5 +78,6 @@ static void done(void)
 	const char *shell = getenv("SHELL");
 	if(!shell || !*shell)
 		shell = "/bin/sh";
+	unsetenv("LD_PRELOAD");
 	execl(shell, shell, NULL);
 }
