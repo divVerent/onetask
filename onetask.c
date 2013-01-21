@@ -62,8 +62,6 @@ static void restore_tty(int fd, int flag)
 
 static void new_shell(void)
 {
-	if(getpid() != me)
-		return;
 	me = 0; // don't call a second time
 	restore_tty(0, O_RDONLY);
 	restore_tty(1, O_WRONLY);
@@ -83,6 +81,8 @@ static void new_shell(void)
 static void signal_handler(int signo)
 {
 	char x;
+	if(getpid() != me)
+		return;
 	WRITE(2, "[onetask] caught signal ");
 	if(signo >= 100)
 	{
@@ -188,6 +188,8 @@ static void catch_ALL_the_signals(void)
 #if __STDC_VERSION__ >= 201112L
 static void quick_exit_handler(void)
 {
+	if(getpid() != me)
+		return;
 	WRITE(2, "[onetask] caught quick_exit\n");
 	new_shell();
 }
@@ -211,6 +213,8 @@ static void init(void)
 static void done(void) __attribute__((destructor));
 static void done(void)
 {
+	if(getpid() != me)
+		return;
 	WRITE(2, "[onetask] caught exit\n");
 	new_shell();
 }
