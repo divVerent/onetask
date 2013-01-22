@@ -294,6 +294,18 @@ int sigaction(int sig, const struct sigaction *restrict act,
 #endif
 	}
 
+	// supporting this flag would be quite complex, so we just try living
+	// without it and seeing what breaks; this MIGHT cause endless loops
+	// in code relying on it, but if this happens, just use ^C (or ^\) to
+	// send a SIGINT (or SIGQUIT) to cancel the cycle
+	if(act->sa_flags & SA_RESETHAND)
+	{
+		WRITE(2, "[onetask] SA_RESETHAND is not supported\n");
+		myact = *act;
+		myact.sa_flags &= ~SA_RESETHAND;
+		act = &myact;
+	}
+
 	ret = real_sigaction(sig, act, oact);
 
 	if(!ret && oact && is_default_sigaction(oact))
@@ -317,6 +329,34 @@ void (*signal (int sig, void (*handler) (int))) (int)
 	int ret;
 	sigemptyset(&sa.sa_mask);
 	sa.sa_flags = 0;
+	sa.sa_handler = handler;
+	ret = sigaction(sig, &sa, &osa);
+	if(ret)
+		return SIG_ERR;
+	return osa.sa_handler;
+}
+
+void (*bsd_signal (int sig, void (*handler) (int))) (int)
+{
+	struct sigaction sa;
+	struct sigaction osa;
+	int ret;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = 0;
+	sa.sa_handler = handler;
+	ret = sigaction(sig, &sa, &osa);
+	if(ret)
+		return SIG_ERR;
+	return osa.sa_handler;
+}
+
+void (*__sysv_signal (int sig, void (*handler) (int))) (int)
+{
+	struct sigaction sa;
+	struct sigaction osa;
+	int ret;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = SA_RESETHAND;
 	sa.sa_handler = handler;
 	ret = sigaction(sig, &sa, &osa);
 	if(ret)
