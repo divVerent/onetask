@@ -18,7 +18,7 @@
 /*
  * Usage:
  *
- * [rpolzer@grawp onetask]$ gcc -shared -fPIC -std=c11 -o onetask.so onetask.c
+ * [rpolzer@grawp onetask]$ gcc -shared -fPIC -std=c11 -o onetask.so onetask.c -ldl
  * [rpolzer@grawp onetask]$ ulimit -u 0; exec env -i dash
  * $ ls
  * dash: 1: Cannot fork
