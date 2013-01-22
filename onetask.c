@@ -37,11 +37,45 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <signal.h>
+#include <string.h>
+#include <stdio.h>
+#include <dlfcn.h>
 
 #define WRITE(fd, str) write(fd, str, sizeof(str) - 1)
 
 static pid_t me = 0;
 static const char *shell;
+
+extern char **environ;
+static const char *findenv(const char *name)
+{
+	size_t l = strlen(name);
+	char **p = environ;
+	if(!p)
+		return NULL;
+	while(*p)
+	{
+		if(!strncmp(*p, name, l))
+			if((*p)[l] == '=')
+				return &(*p)[l+1];
+		++p;
+	}
+	return NULL;
+}
+static void killenv(const char *name)
+{
+	size_t l = strlen(name);
+	char **p = environ;
+	if(!p)
+		return;
+	while(*p)
+	{
+		if(!strncmp(*p, name, l))
+			if((*p)[l] == '=')
+				(*p)[l+1] = 0;
+		++p;
+	}
+}
 
 static void restore_tty(int fd, int flag)
 {
@@ -60,6 +94,7 @@ static void restore_tty(int fd, int flag)
 	}
 }
 
+static void new_shell(void) __attribute__((noreturn));
 static void new_shell(void)
 {
 	me = 0; // don't call a second time
@@ -67,15 +102,17 @@ static void new_shell(void)
 	restore_tty(1, O_WRONLY);
 	restore_tty(2, O_WRONLY);
 	WRITE(2, "[onetask] back to shell\n");
-	unsetenv("LD_PRELOAD");
+	killenv("LD_PRELOAD");
 	if(!shell)
-		shell = getenv("SHELL");
+		shell = findenv("SHELL");
 	if(shell && *shell)
-		execle(shell, shell, NULL, environ);
-	execle("/bin/sh", "/bin/sh", NULL, environ);
+		execle(shell, shell, (char *) NULL, environ);
+	execle("/bin/sh", "/bin/sh", (char *) NULL, environ);
 	WRITE(2, "[onetask] cannot get a shell - BAD BAD BAD\n");
 	// TODO loop asking for binary to spawn
-	_exit(42);
+	for(;;)
+	{
+	}
 }
 
 static void signal_handler(int signo)
@@ -100,89 +137,213 @@ static void signal_handler(int signo)
 	new_shell();
 }
 
-static void catch_ALL_the_signals(void)
+struct signalinfo
 {
-	int i;
-	struct sigaction sa;
-	sa.sa_handler = signal_handler;
-	sigfillset(&sa.sa_mask);
-	sa.sa_flags = 0;
+	int sig;
+	void (*handler) (int);
+};
+struct signalinfo allsignals[] = {
+	// first all standard fatal signals
+	{SIGHUP, signal_handler},
+	{SIGINT, signal_handler},
+	{SIGQUIT, signal_handler},
+	{SIGILL, signal_handler},
+	{SIGABRT, signal_handler},
+	{SIGFPE, signal_handler},
+	{SIGSEGV, signal_handler},
+	{SIGPIPE, signal_handler},
+	{SIGALRM, signal_handler},
+	{SIGTERM, signal_handler},
+	{SIGUSR1, signal_handler},
+	{SIGUSR2, signal_handler},
 
-	// first all fatal signals
-
-	// standard
-	sigaction(SIGHUP, &sa, NULL);
-	sigaction(SIGINT, &sa, NULL);
-	sigaction(SIGQUIT, &sa, NULL);
-	sigaction(SIGILL, &sa, NULL);
-	sigaction(SIGABRT, &sa, NULL);
-	sigaction(SIGFPE, &sa, NULL);
-	sigaction(SIGSEGV, &sa, NULL);
-	sigaction(SIGPIPE, &sa, NULL);
-	sigaction(SIGALRM, &sa, NULL);
-	sigaction(SIGTERM, &sa, NULL);
-	sigaction(SIGUSR1, &sa, NULL);
-	sigaction(SIGUSR2, &sa, NULL);
-
-	// extensions
+	// then all optional fatal signals
 #ifdef SIGBUS
-	sigaction(SIGBUS, &sa, NULL);
+	{SIGBUS, signal_handler},
 #endif
 #ifdef SIGPOLL
-	sigaction(SIGPOLL, &sa, NULL);
+	{SIGPOLL, signal_handler},
 #endif
 #ifdef SIGPROF
-	sigaction(SIGPROF, &sa, NULL);
+	{SIGPROF, signal_handler},
 #endif
 #ifdef SIGSYS
-	sigaction(SIGSYS, &sa, NULL);
+	{SIGSYS, signal_handler},
 #endif
 #ifdef SIGTRAP
-	sigaction(SIGTRAP, &sa, NULL);
+	{SIGTRAP, signal_handler},
 #endif
 #ifdef SIGVTALRM
-	sigaction(SIGVTALRM, &sa, NULL);
+	{SIGVTALRM, signal_handler},
 #endif
 #ifdef SIGXCPU
-	sigaction(SIGXCPU, &sa, NULL);
+	{SIGXCPU, signal_handler},
 #endif
 #ifdef SIGXFSZ
-	sigaction(SIGXFSZ, &sa, NULL);
+	{SIGXFSZ, signal_handler},
 #endif
 #ifdef SIGIOT
-	sigaction(SIGIOT, &sa, NULL);
+	{SIGIOT, signal_handler},
 #endif
 #ifdef SIGEMT
-	sigaction(SIGEMT, &sa, NULL);
+	{SIGEMT, signal_handler},
 #endif
 #ifdef SIGSTKFLT
-	sigaction(SIGSTKFLT, &sa, NULL);
+	{SIGSTKFLT, signal_handler},
 #endif
 #ifdef SIGIO
-	sigaction(SIGIO, &sa, NULL);
+	{SIGIO, signal_handler},
 #endif
 #ifdef SIGPWR
-	sigaction(SIGPWR, &sa, NULL);
+	{SIGPWR, signal_handler},
 #endif
 #ifdef SIGLOST
-	sigaction(SIGLOST, &sa, NULL);
+	{SIGLOST, signal_handler},
 #endif
 #ifdef SIGUNUSED
-	sigaction(SIGUNUSED, &sa, NULL);
+	{SIGUNUSED, signal_handler},
 #endif
 #ifdef SIGTHR
-	sigaction(SIGTHR, &sa, NULL);
-#endif
-#ifdef SIGRTMIN
-	for(i = SIGRTMIN; i <= SIGRTMAX; ++i)
-		sigaction(i, &sa, NULL);
+	{SIGTHR, signal_handler},
 #endif
 
 	// and then ignore all stopping signals
-	sa.sa_handler = SIG_IGN;
-	sigaction(SIGTSTP, &sa, NULL);
-	sigaction(SIGTTIN, &sa, NULL);
-	sigaction(SIGTTOU, &sa, NULL);
+	{SIGTSTP, SIG_IGN},
+	{SIGTTIN, SIG_IGN},
+	{SIGTTOU, SIG_IGN},
+
+	// end of list
+	{0, NULL}
+};
+
+static int is_default_sigaction(const struct sigaction *sa)
+{
+	if(sa->sa_flags & SA_SIGINFO)
+		return 0;
+	if(sa->sa_handler == SIG_DFL)
+		return 1;
+	if(sa->sa_handler == signal_handler)
+		return 1;
+	return 0;
+}
+
+static void catch_ALL_the_signals(void)
+{
+	static int (*real_sigaction) (int, const struct sigaction *restrict,
+	                              struct sigaction *restrict) = NULL;
+	struct signalinfo *inf;
+	struct sigaction sa, osa;
+
+	if(!real_sigaction)
+		real_sigaction = dlsym(RTLD_NEXT, "sigaction");
+
+	sigfillset(&sa.sa_mask);
+	sa.sa_flags = 0;
+
+	for(inf = allsignals; inf->sig; ++inf)
+	{
+		sa.sa_handler = inf->handler;
+		real_sigaction(inf->sig, NULL, &osa);
+		// don't override already set handlers
+		if(is_default_sigaction(&osa))
+			real_sigaction(inf->sig, &sa, NULL);
+	}
+#ifdef SIGRTMIN
+	{
+		int i;
+		for(i = SIGRTMIN; i <= SIGRTMAX; ++i)
+		{
+			sa.sa_handler = inf->handler;
+			real_sigaction(i, NULL, &osa);
+			// don't override already set handlers
+			if(is_default_sigaction(&osa))
+				real_sigaction(i, &sa, NULL);
+		}
+	}
+#endif
+}
+
+int sigaction(int sig, const struct sigaction *restrict act,
+                     struct sigaction *restrict oact)
+{
+	static int (*real_sigaction) (int, const struct sigaction *restrict,
+	                              struct sigaction *restrict) = NULL;
+	int ret;
+	struct sigaction myact;
+	struct signalinfo *inf;
+
+	if(!real_sigaction)
+		real_sigaction = dlsym(RTLD_NEXT, "sigaction");
+
+	if(act && is_default_sigaction(act))
+	{
+		for(inf = allsignals; inf->sig; ++inf)
+			if(sig == inf->sig)
+			{
+				myact = *act;
+				myact.sa_handler = inf->handler;
+				act = &myact;
+			}
+#ifdef SIGRTMIN
+		if(sig >= SIGRTMIN && sig <= SIGRTMAX)
+		{
+			myact = *act;
+			myact.sa_handler = inf->handler;
+			act = &myact;
+		}
+#endif
+	}
+
+	ret = real_sigaction(sig, act, oact);
+
+	if(!ret && oact && is_default_sigaction(oact))
+	{
+		for(inf = allsignals; inf->sig; ++inf)
+			if(sig == inf->sig)
+				oact->sa_handler = SIG_DFL;
+#ifdef SIGRTMIN
+		if(sig >= SIGRTMIN && sig <= SIGRTMAX)
+			oact->sa_handler = SIG_DFL;
+#endif
+	}
+
+	return ret;
+}
+
+void (*signal (int sig, void (*handler) (int))) (int)
+{
+	struct sigaction sa;
+	struct sigaction osa;
+	int ret;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = 0;
+	sa.sa_handler = handler;
+	ret = sigaction(sig, &sa, &osa);
+	if(ret)
+		return SIG_ERR;
+	return osa.sa_handler;
+}
+
+void _exit(int ret)
+{
+	static int (*real__exit) (int) = NULL;
+	if(!real__exit)
+		real__exit = dlsym(RTLD_NEXT, "_exit");
+	if(getpid() != me)
+		real__exit(ret);
+	WRITE(2, "[onetask] caught _exit\n");
+	new_shell();
+}
+
+void _Exit(int ret)
+{
+	static int (*real__Exit) (int) = NULL;
+	if(!real__Exit)
+		real__Exit = dlsym(RTLD_NEXT, "_Exit");
+	if(getpid() != me)
+		real__Exit(ret);
+	WRITE(2, "[onetask] caught _Exit\n");
+	new_shell();
 }
 
 #if __STDC_VERSION__ >= 201112L
@@ -199,8 +360,8 @@ static void init(void) __attribute__((constructor));
 static void init(void)
 {
 	WRITE(2, "[onetask] initialized\n");
-	unsetenv("LD_PRELOAD");
-	shell = getenv("SHELL");
+	killenv("LD_PRELOAD");
+	shell = findenv("SHELL");
 	me = getpid();
 #if __STDC_VERSION__ >= 201112L
 	at_quick_exit(quick_exit_handler);
