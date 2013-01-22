@@ -322,20 +322,6 @@ int sigaction(int sig, const struct sigaction *restrict act,
 	return ret;
 }
 
-void (*signal (int sig, void (*handler) (int))) (int)
-{
-	struct sigaction sa;
-	struct sigaction osa;
-	int ret;
-	sigemptyset(&sa.sa_mask);
-	sa.sa_flags = 0;
-	sa.sa_handler = handler;
-	ret = sigaction(sig, &sa, &osa);
-	if(ret)
-		return SIG_ERR;
-	return osa.sa_handler;
-}
-
 void (*bsd_signal (int sig, void (*handler) (int))) (int)
 {
 	struct sigaction sa;
@@ -362,6 +348,12 @@ void (*__sysv_signal (int sig, void (*handler) (int))) (int)
 	if(ret)
 		return SIG_ERR;
 	return osa.sa_handler;
+}
+
+// glibc defaults to BSD semantics, so do we
+void (*signal (int sig, void (*handler) (int))) (int)
+{
+	return bsd_signal(sig, handler);
 }
 
 void _exit(int ret)
