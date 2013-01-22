@@ -15,13 +15,11 @@ all: $(LIBNAME)
 clean:
 	$(RM) onetask.o onetask.so $(ALLTESTS_O) $(ALLTESTS_X)
 
-$(OBJNAME): CFLAGS += -fPIC
 $(OBJNAME): $(SRCNAME)
-	$(CC) $(CFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -c -o $@ $<
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -fPIC -c -o $@ $<
 
-$(LIBNAME): LDFLAGS += -shared -fPIC
 $(LIBNAME): $(OBJNAME)
-	$(CC) $(LDFLAGS) $(TARGET_ARCH) -o $@ $<
+	$(CC) $(LDFLAGS) $(TARGET_ARCH) -shared -fPIC -o $@ $<
 
 %.bin: %.o
 	$(CC) $(LDFLAGS) $(TARGET_ARCH) -o $@ $<
