@@ -41,108 +41,21 @@
 #include <stdio.h>
 #include <dlfcn.h>
 
+extern char **environ;
+
 #define WRITE(fd, str) write(fd, str, sizeof(str) - 1)
 
-static pid_t me = 0;
-static const char *shell;
+static volatile pid_t me = 0;
+static volatile const char *shell;
+static volatile struct sigaction resethand_sigaction[256] = {};
 
-extern char **environ;
-static const char *findenv(const char *name)
-{
-	size_t l = strlen(name);
-	char **p = environ;
-	if(!p)
-		return NULL;
-	while(*p)
-	{
-		if(!strncmp(*p, name, l))
-			if((*p)[l] == '=')
-				return &(*p)[l+1];
-		++p;
-	}
-	return NULL;
-}
-static void killenv(const char *name)
-{
-	size_t l = strlen(name);
-	char **p = environ;
-	if(!p)
-		return;
-	while(*p)
-	{
-		if(!strncmp(*p, name, l))
-			if((*p)[l] == '=')
-				(*p)[l+1] = 0;
-		++p;
-	}
-}
-
-static void restore_tty(int fd, int flag)
-{
-	if(!fsync(fd))
-		return;
-	if(errno != EBADF)
-		return;
-	// if we get here, we know fd is an invalid fd
-	int new_fd = open("/dev/tty", flag);
-	if(new_fd < 0)
-		return;
-	if(new_fd != fd)
-	{
-		dup2(new_fd, fd);
-		close(new_fd);
-	}
-}
-
-static void new_shell(void) __attribute__((noreturn));
-static void new_shell(void)
-{
-	me = 0; // don't call a second time
-	restore_tty(0, O_RDONLY);
-	restore_tty(1, O_WRONLY);
-	restore_tty(2, O_WRONLY);
-	WRITE(2, "[onetask] back to shell\n");
-	killenv("LD_PRELOAD");
-	if(!shell)
-		shell = findenv("SHELL");
-	if(shell && *shell)
-		execle(shell, shell, (char *) NULL, environ);
-	execle("/bin/sh", "/bin/sh", (char *) NULL, environ);
-	WRITE(2, "[onetask] cannot get a shell - BAD BAD BAD\n");
-	// TODO loop asking for binary to spawn
-	for(;;)
-	{
-	}
-}
-
-static void signal_handler(int signo)
-{
-	char x;
-	if(getpid() != me)
-		return;
-	WRITE(2, "[onetask] caught signal ");
-	if(signo >= 100)
-	{
-		x = '0' + (signo / 100);
-		write(2, &x, 1);
-	}
-	if(signo >= 10)
-	{
-		x = '0' + ((signo % 100) / 10);
-		write(2, &x, 1);
-	}
-	x = '0' + (signo % 10);
-	write(2, &x, 1);
-	WRITE(2, "\n");
-	new_shell();
-}
-
-struct signalinfo
+static void signal_handler(int signo);
+const struct signalinfo
 {
 	int sig;
 	void (*handler) (int);
-};
-struct signalinfo allsignals[] = {
+}
+allsignals[] = {
 	// first all standard fatal signals
 	{SIGHUP, signal_handler},
 	{SIGINT, signal_handler},
@@ -216,6 +129,97 @@ struct signalinfo allsignals[] = {
 	{0, NULL}
 };
 
+static const char *findenv(const char *name)
+{
+	size_t l = strlen(name);
+	char **p = environ;
+	if(!p)
+		return NULL;
+	while(*p)
+	{
+		if(!strncmp(*p, name, l))
+			if((*p)[l] == '=')
+				return &(*p)[l+1];
+		++p;
+	}
+	return NULL;
+}
+static void killenv(const char *name)
+{
+	size_t l = strlen(name);
+	char **p = environ;
+	if(!p)
+		return;
+	while(*p)
+	{
+		if(!strncmp(*p, name, l))
+			if((*p)[l] == '=')
+				(*p)[l+1] = 0;
+		++p;
+	}
+}
+
+static void restore_tty(int fd, int flag)
+{
+	if(!fsync(fd))
+		return;
+	if(errno != EBADF)
+		return;
+	// if we get here, we know fd is an invalid fd
+	int new_fd = open("/dev/tty", flag);
+	if(new_fd < 0)
+		return;
+	if(new_fd != fd)
+	{
+		dup2(new_fd, fd);
+		close(new_fd);
+	}
+}
+
+static void new_shell(void) __attribute__((noreturn));
+static void new_shell(void)
+{
+	const char *sh = (const char *) shell;
+	me = 0; // don't call a second time
+	restore_tty(0, O_RDONLY);
+	restore_tty(1, O_WRONLY);
+	restore_tty(2, O_WRONLY);
+	WRITE(2, "[onetask] back to shell\n");
+	killenv("LD_PRELOAD");
+	if(!sh)
+		shell = findenv("SHELL");
+	if(sh && *sh)
+		execle(sh, sh, (char *) NULL, environ);
+	execle("/bin/sh", "/bin/sh", (char *) NULL, environ);
+	WRITE(2, "[onetask] cannot get a shell - BAD BAD BAD\n");
+	// TODO loop asking for binary to spawn
+	for(;;)
+	{
+	}
+}
+
+static void signal_handler(int signo)
+{
+	char x;
+	if(getpid() != me)
+		return;
+	WRITE(2, "[onetask] caught signal ");
+	if(signo >= 100)
+	{
+		x = '0' + (signo / 100);
+		write(2, &x, 1);
+	}
+	if(signo >= 10)
+	{
+		x = '0' + ((signo % 100) / 10);
+		write(2, &x, 1);
+	}
+	x = '0' + (signo % 10);
+	write(2, &x, 1);
+	WRITE(2, "\n");
+	new_shell();
+}
+
 static int is_default_sigaction(const struct sigaction *sa,
                                 void (*redir_to) (int))
 {
@@ -228,11 +232,12 @@ static int is_default_sigaction(const struct sigaction *sa,
 	return 0;
 }
 
+static int (*real_sigaction) (int, const struct sigaction *restrict,
+                              struct sigaction *restrict) = NULL;
+
 static void catch_ALL_the_signals(void)
 {
-	static int (*real_sigaction) (int, const struct sigaction *restrict,
-	                              struct sigaction *restrict) = NULL;
-	struct signalinfo *inf;
+	const struct signalinfo *inf;
 	struct sigaction sa, osa;
 
 	if(!real_sigaction)
@@ -264,14 +269,30 @@ static void catch_ALL_the_signals(void)
 #endif
 }
 
+void resethand_signal_handler(int sig, siginfo_t *si, void *data)
+{
+	struct sigaction sa;
+	if(!sigaction(sig, NULL, &sa))
+	{
+		sa.sa_flags &= ~SA_SIGINFO;
+		sa.sa_handler = SIG_DFL;
+		sigaction(sig, &sa, NULL);
+	}
+	// LOCK
+	sa = resethand_sigaction[sig];
+	// UNLOCK
+	if(sa.sa_flags & SA_SIGINFO)
+		sa.sa_sigaction(sig, si, data);
+	else
+		sa.sa_handler(sig);
+}
+
 int sigaction(int sig, const struct sigaction *restrict act,
                      struct sigaction *restrict oact)
 {
-	static int (*real_sigaction) (int, const struct sigaction *restrict,
-	                              struct sigaction *restrict) = NULL;
 	int ret;
 	struct sigaction myact;
-	struct signalinfo *inf;
+	const struct signalinfo *inf;
 	void (*redir_to) (int);
 	int do_redir;
 
@@ -285,29 +306,73 @@ int sigaction(int sig, const struct sigaction *restrict act,
 	if(sig >= SIGRTMIN && sig <= SIGRTMAX)
 		redir_to = signal_handler;
 
-	if(act && redir_to && is_default_sigaction(act, redir_to))
-	{
-		myact = *act;
-		myact.sa_handler = redir_to;
-		act = &myact;
-	}
-
 	// supporting this flag would be quite complex, so we just try living
 	// without it and seeing what breaks; this MIGHT cause endless loops
 	// in code relying on it, but if this happens, just use ^C (or ^\) to
 	// send a SIGINT (or SIGQUIT) to cancel the cycle
-	if(act->sa_flags & SA_RESETHAND)
+	if(act && redir_to &&
+	   (act->sa_flags & SA_SIGINFO ||
+	    (act->sa_handler != SIG_DFL && act->sa_handler != SIG_IGN)))
 	{
-		WRITE(2, "[onetask] SA_RESETHAND is not supported\n");
-		myact = *act;
-		myact.sa_flags &= ~SA_RESETHAND;
-		act = &myact;
+		if(act != &myact)
+		{
+			myact = *act;
+			act = &myact;
+		}
+		if(sig < 0  || sig >=
+		   sizeof(resethand_sigaction) / sizeof(*resethand_sigaction))
+		{
+			WRITE(2, "[onetask] SA_RESETHAND not supported "
+			         "on high numbered signals\n");
+			myact.sa_flags &= ~SA_RESETHAND;
+		}
+		else
+		{
+			WRITE(2, "[onetask] SA_RESETHAND emulated\n");
+			// LOCK
+			resethand_sigaction[sig] = myact;
+			// UNLOCK
+			myact.sa_flags &= ~SA_RESETHAND;
+			myact.sa_flags |=  SA_SIGINFO;
+			myact.sa_sigaction = resethand_signal_handler;
+		}
+	}
+
+	if(act && redir_to && is_default_sigaction(act, redir_to))
+	{
+		if(act != &myact)
+		{
+			myact = *act;
+			act = &myact;
+		}
+		myact.sa_handler = redir_to;
 	}
 
 	ret = real_sigaction(sig, act, oact);
 
-	if(!ret && oact && redir_to && is_default_sigaction(oact, redir_to))
-		oact->sa_handler = SIG_DFL;
+	if(!ret && oact && redir_to)
+	{
+		if(is_default_sigaction(oact, redir_to))
+			oact->sa_handler = SIG_DFL;
+		else if((oact->sa_flags & SA_SIGINFO) &&
+		        (oact->sa_sigaction == resethand_signal_handler))
+		{
+			oact->sa_flags |=  SA_RESETHAND;
+			// LOCK
+			if(resethand_sigaction[sig].sa_flags & SA_SIGINFO)
+			{
+				oact->sa_sigaction =
+					resethand_sigaction[sig].sa_sigaction;
+			}
+			else
+			{
+				oact->sa_flags &= ~SA_SIGINFO;
+				oact->sa_handler =
+					resethand_sigaction[sig].sa_handler;
+			}
+			// UNLOCK
+		}
+	}
 
 	return ret;
 }
