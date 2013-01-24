@@ -216,13 +216,14 @@ struct signalinfo allsignals[] = {
 	{0, NULL}
 };
 
-static int is_default_sigaction(const struct sigaction *sa)
+static int is_default_sigaction(const struct sigaction *sa,
+                                void (*redir_to) (int))
 {
 	if(sa->sa_flags & SA_SIGINFO)
 		return 0;
 	if(sa->sa_handler == SIG_DFL)
 		return 1;
-	if(sa->sa_handler == signal_handler)
+	if(sa->sa_handler == redir_to)
 		return 1;
 	return 0;
 }
@@ -245,7 +246,7 @@ static void catch_ALL_the_signals(void)
 		sa.sa_handler = inf->handler;
 		real_sigaction(inf->sig, NULL, &osa);
 		// don't override already set handlers
-		if(is_default_sigaction(&osa))
+		if(is_default_sigaction(&osa, SIG_DFL))
 			real_sigaction(inf->sig, &sa, NULL);
 	}
 #ifdef SIGRTMIN
@@ -256,7 +257,7 @@ static void catch_ALL_the_signals(void)
 			sa.sa_handler = inf->handler;
 			real_sigaction(i, NULL, &osa);
 			// don't override already set handlers
-			if(is_default_sigaction(&osa))
+			if(is_default_sigaction(&osa, SIG_DFL))
 				real_sigaction(i, &sa, NULL);
 		}
 	}
@@ -271,27 +272,24 @@ int sigaction(int sig, const struct sigaction *restrict act,
 	int ret;
 	struct sigaction myact;
 	struct signalinfo *inf;
+	void (*redir_to) (int);
+	int do_redir;
 
 	if(!real_sigaction)
 		real_sigaction = dlsym(RTLD_NEXT, "sigaction");
 
-	if(act && is_default_sigaction(act))
+	redir_to = NULL;
+	for(inf = allsignals; inf->sig; ++inf)
+		if(sig == inf->sig)
+			redir_to = inf->handler;
+	if(sig >= SIGRTMIN && sig <= SIGRTMAX)
+		redir_to = signal_handler;
+
+	if(act && redir_to && is_default_sigaction(act, redir_to))
 	{
-		for(inf = allsignals; inf->sig; ++inf)
-			if(sig == inf->sig)
-			{
-				myact = *act;
-				myact.sa_handler = inf->handler;
-				act = &myact;
-			}
-#ifdef SIGRTMIN
-		if(sig >= SIGRTMIN && sig <= SIGRTMAX)
-		{
-			myact = *act;
-			myact.sa_handler = inf->handler;
-			act = &myact;
-		}
-#endif
+		myact = *act;
+		myact.sa_handler = redir_to;
+		act = &myact;
 	}
 
 	// supporting this flag would be quite complex, so we just try living
@@ -308,16 +306,8 @@ int sigaction(int sig, const struct sigaction *restrict act,
 
 	ret = real_sigaction(sig, act, oact);
 
-	if(!ret && oact && is_default_sigaction(oact))
-	{
-		for(inf = allsignals; inf->sig; ++inf)
-			if(sig == inf->sig)
-				oact->sa_handler = SIG_DFL;
-#ifdef SIGRTMIN
-		if(sig >= SIGRTMIN && sig <= SIGRTMAX)
-			oact->sa_handler = SIG_DFL;
-#endif
-	}
+	if(!ret && oact && redir_to && is_default_sigaction(oact, redir_to))
+		oact->sa_handler = SIG_DFL;
 
 	return ret;
 }
