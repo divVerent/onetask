@@ -1,5 +1,9 @@
 CFLAGS ?= -std=c11 -O3
-LDFLAGS ?= -ldl
+LDFLAGS ?=
+
+CFLAGS_LIB ?= -fPIC
+LDFLAGS_LIB ?= -shared -fPIC -ldl
+LIBS_LIB ?= -ldl
 
 SRCNAME = onetask.c
 OBJNAME = onetask.o
@@ -22,10 +26,10 @@ clean:
 	$(RM) onetask.o onetask.so $(ALL_C_TESTS_O) $(ALL_C_TESTS_X)
 
 $(OBJNAME): $(SRCNAME)
-	$(CC) $(CFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -fPIC -c -o $@ $<
+	$(CC) $(CFLAGS) $(CFLAGS_LIB) $(CPPFLAGS) $(TARGET_ARCH) -c -o $@ $<
 
 $(LIBNAME): $(OBJNAME)
-	$(CC) $(LDFLAGS) $(TARGET_ARCH) -shared -fPIC -o $@ $<
+	$(CC) $(LDFLAGS) $(LDFLAGS_LIB) $(TARGET_ARCH) -o $@ $< $(LIBS_LIB)
 
 %.bin: %.o
 	$(CXX) $(LDFLAGS) $(TARGET_ARCH) -o $@ $<

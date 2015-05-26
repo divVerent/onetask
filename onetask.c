@@ -43,7 +43,7 @@
 
 extern char **environ;
 
-#define WRITE(fd, str) write(fd, str, sizeof(str) - 1)
+#define WRITE(fd, str) do { if (write(fd, str, sizeof(str) - 1)) {} } while(0)
 
 static volatile pid_t me = 0;
 static volatile const char *shell;
@@ -207,15 +207,15 @@ static void signal_handler(int signo)
 	if(signo >= 100)
 	{
 		x = '0' + (signo / 100);
-		write(2, &x, 1);
+		if (write(2, &x, 1)) {}
 	}
 	if(signo >= 10)
 	{
 		x = '0' + ((signo % 100) / 10);
-		write(2, &x, 1);
+		if (write(2, &x, 1)) {}
 	}
 	x = '0' + (signo % 10);
-	write(2, &x, 1);
+	if (write(2, &x, 1)) {}
 	WRITE(2, "\n");
 	new_shell();
 }
